@@ -10,8 +10,8 @@ android {
         applicationId 'com.local.spotifyyoutubeoverlay'
         minSdk 26
         targetSdk 34
-        versionCode 1
-        versionName '1.0'
+        versionCode 3
+        versionName '3.0'
     }
 
     buildTypes {
@@ -27,5 +27,5 @@ android {
 }
 
 dependencies {
-    // Pure Android SDK - zero third-party dependencies
+    // Pure Android SDK - zero third-party dependencies for fast, reliable builds
 }

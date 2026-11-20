@@ -75,7 +75,7 @@ public final class LyricsFetcher {
             conn.setRequestMethod("GET");
             conn.setConnectTimeout(6000);
             conn.setReadTimeout(6000);
-            conn.setRequestProperty("User-Agent", "SpotifyYouTubeOverlayAndroid/1.0");
+            conn.setRequestProperty("User-Agent", "SpotifyYouTubeOverlayAndroid/3.0");
             if (conn.getResponseCode() != 200) {
                 return null;
             }

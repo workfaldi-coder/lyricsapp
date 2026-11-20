@@ -40,10 +40,19 @@ public final class OverlayState {
     public static volatile int sourceMode = SOURCE_AUTO;
     public static volatile int textColor = COLOR_GREEN;
     public static volatile float textSizeSp = 22f;
+    public static volatile boolean useMonospaceFont = false;
+    public static volatile boolean showThreeLines = false;
     public static volatile boolean showDarkPill = false;
     public static volatile boolean clickThrough = false;
     public static volatile long spotifyOffsetMs = 0L;
+    public static volatile boolean amoledAutoOnScreenOff = false;
+    public static volatile float amoledBrightness = 0.12f;
+
+    // Runtime flags
     public static volatile boolean overlayRunning = false;
+    public static volatile boolean amoledActive = false;
+    public static volatile long amoledLastDismissedMs = 0L;
+    public static volatile boolean isMusicActivelyPlaying = false;
 
     // Live YouTube caption state (updated by YouTubeCaptionService)
     public static String ytCaptionText = "";
@@ -60,9 +69,13 @@ public final class OverlayState {
         sourceMode = sp.getInt("sourceMode", SOURCE_AUTO);
         textColor = sp.getInt("textColor", COLOR_GREEN);
         textSizeSp = sp.getFloat("textSizeSp", 22f);
+        useMonospaceFont = sp.getBoolean("useMonospaceFont", false);
+        showThreeLines = sp.getBoolean("showThreeLines", false);
         showDarkPill = sp.getBoolean("showDarkPill", false);
         clickThrough = sp.getBoolean("clickThrough", false);
         spotifyOffsetMs = sp.getLong("spotifyOffsetMs", 0L);
+        amoledAutoOnScreenOff = sp.getBoolean("amoledAutoOnScreenOff", false);
+        amoledBrightness = sp.getFloat("amoledBrightness", 0.12f);
     }
 
     public static void save(Context ctx) {
@@ -71,9 +84,13 @@ public final class OverlayState {
             .putInt("sourceMode", sourceMode)
             .putInt("textColor", textColor)
             .putFloat("textSizeSp", textSizeSp)
+            .putBoolean("useMonospaceFont", useMonospaceFont)
+            .putBoolean("showThreeLines", showThreeLines)
             .putBoolean("showDarkPill", showDarkPill)
             .putBoolean("clickThrough", clickThrough)
             .putLong("spotifyOffsetMs", spotifyOffsetMs)
+            .putBoolean("amoledAutoOnScreenOff", amoledAutoOnScreenOff)
+            .putFloat("amoledBrightness", amoledBrightness)
             .apply();
     }
 

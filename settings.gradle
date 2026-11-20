@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "SpotifyYouTubeOverlay"
-include(":app")
+rootProject.name = 'SpotifyYouTubeOverlay'
+include ':app'

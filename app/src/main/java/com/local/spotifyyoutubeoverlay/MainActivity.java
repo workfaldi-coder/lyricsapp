@@ -34,8 +34,11 @@ public class MainActivity extends Activity {
     private Button btnToggleOverlay;
     private TextView tvOffsetValue;
     private TextView tvSourceValue;
+    private Switch swMonospace;
+    private Switch swThreeLines;
     private Switch swDarkPill;
     private Switch swClickThrough;
+    private Switch swAmoledAuto;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -80,13 +83,13 @@ public class MainActivity extends Activity {
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("Transparent floating lyrics for Spotify & YT Music + live YouTube CC subtitles. Zero API keys.");
+        subtitle.setText("Floating transparent lyrics & YouTube subtitles + AMOLED Always-On Lyrics Screensaver.");
         subtitle.setTextColor(Color.parseColor("#AAAAAA"));
         subtitle.setTextSize(13);
         subtitle.setPadding(0, dp(4), 0, dp(18));
         root.addView(subtitle);
 
-        // Main Start / Stop Button
+        // Main Start / Stop Floating Overlay Button
         btnToggleOverlay = new Button(this);
         btnToggleOverlay.setAllCaps(false);
         btnToggleOverlay.setTextSize(16);
@@ -101,6 +104,74 @@ public class MainActivity extends Activity {
         });
         root.addView(btnToggleOverlay, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        // AMOLED Screensaver Card
+        LinearLayout amoledCard = createCard(root, "AMOLED Screensaver Mode");
+
+        TextView amoledDesc = new TextView(this);
+        amoledDesc.setText("Pure #000000 black screen with dimmed lyrics, auto pixel-shift (burn-in protection), and 30s auto-sleep when paused.");
+        amoledDesc.setTextColor(Color.parseColor("#AAAAAA"));
+        amoledDesc.setTextSize(12);
+        amoledDesc.setPadding(0, 0, 0, dp(12));
+        amoledCard.addView(amoledDesc);
+
+        Button btnLaunchAmoled = new Button(this);
+        btnLaunchAmoled.setText("Launch AMOLED Lyrics Screen Now");
+        btnLaunchAmoled.setAllCaps(false);
+        btnLaunchAmoled.setTextSize(15);
+        btnLaunchAmoled.setTypeface(Typeface.DEFAULT_BOLD);
+        btnLaunchAmoled.setTextColor(Color.WHITE);
+        btnLaunchAmoled.setBackground(roundedBg(Color.parseColor("#000000"), 10));
+        btnLaunchAmoled.setPadding(dp(14), dp(12), dp(14), dp(12));
+        btnLaunchAmoled.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!isNotificationListenerEnabled()) {
+                    Toast.makeText(MainActivity.this, "Enable Notification Access first to read Spotify lyrics", Toast.LENGTH_LONG).show();
+                }
+                startActivity(new Intent(MainActivity.this, AmoledLyricsActivity.class));
+            }
+        });
+        amoledCard.addView(btnLaunchAmoled, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ));
+
+        swAmoledAuto = addSwitchRow(amoledCard, "Auto-show when screen locks (while playing)", OverlayState.amoledAutoOnScreenOff,
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                        OverlayState.amoledAutoOnScreenOff = isChecked;
+                        OverlayState.save(MainActivity.this);
+                        sendServiceAction(OverlayService.ACTION_REFRESH_STYLE);
+                    }
+                });
+
+        TextView amoledAutoNote = new TextView(this);
+        amoledAutoNote.setText("Requires Floating Overlay running. Press power button while AMOLED is showing to turn screen completely off.");
+        amoledAutoNote.setTextColor(Color.parseColor("#888888"));
+        amoledAutoNote.setTextSize(11);
+        amoledAutoNote.setPadding(0, dp(4), 0, dp(10));
+        amoledCard.addView(amoledAutoNote);
+
+        Button btnDreamSettings = new Button(this);
+        btnDreamSettings.setText("Set as Android Charging Screen Saver");
+        btnDreamSettings.setAllCaps(false);
+        btnDreamSettings.setTextSize(13);
+        btnDreamSettings.setTextColor(Color.WHITE);
+        btnDreamSettings.setBackground(roundedBg(Color.parseColor("#2A2A2A"), 8));
+        btnDreamSettings.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    startActivity(new Intent(Settings.ACTION_DREAM_SETTINGS));
+                } catch (Exception e) {
+                    Toast.makeText(MainActivity.this, "Open Settings -> Display -> Screen saver", Toast.LENGTH_LONG).show();
+                }
+            }
+        });
+        amoledCard.addView(btnDreamSettings, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, dp(40)
         ));
 
         // Permissions Card
@@ -149,9 +220,9 @@ public class MainActivity extends Activity {
         });
 
         // Appearance Card
-        LinearLayout styleCard = createCard(root, "3. Appearance & Behavior");
+        LinearLayout styleCard = createCard(root, "3. Appearance & Layout");
 
-        TextView lblColor = sectionSubLabel("Text Color");
+        TextView lblColor = sectionSubLabel("Text Color (Overlay & AMOLED)");
         styleCard.addView(lblColor);
         LinearLayout colorRow = createButtonRow(styleCard);
         addColorChip(colorRow, "Green", OverlayState.COLOR_GREEN);
@@ -173,7 +244,27 @@ public class MainActivity extends Activity {
             @Override public void onClick(View v) { setTextSize(28f); }
         });
 
-        swDarkPill = addSwitchRow(styleCard, "Subtle Dark Backdrop", OverlayState.showDarkPill,
+        swMonospace = addSwitchRow(styleCard, "Monospace Font (Typewriter)", OverlayState.useMonospaceFont,
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                        OverlayState.useMonospaceFont = isChecked;
+                        OverlayState.save(MainActivity.this);
+                        sendServiceAction(OverlayService.ACTION_REFRESH_STYLE);
+                    }
+                });
+
+        swThreeLines = addSwitchRow(styleCard, "3-Line Lyrics (Active in Center)", OverlayState.showThreeLines,
+                new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                        OverlayState.showThreeLines = isChecked;
+                        OverlayState.save(MainActivity.this);
+                        sendServiceAction(OverlayService.ACTION_REFRESH_STYLE);
+                    }
+                });
+
+        swDarkPill = addSwitchRow(styleCard, "Subtle Dark Backdrop (Overlay)", OverlayState.showDarkPill,
                 new CompoundButton.OnCheckedChangeListener() {
                     @Override
                     public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
@@ -233,13 +324,6 @@ public class MainActivity extends Activity {
             }
         });
         syncCard.addView(btnResetPos, rpLp);
-
-        TextView tip = new TextView(this);
-        tip.setText("Tip: Spotify & YouTube Music lyrics work even when minimized. For YouTube videos, turn on CC and use normal, split-screen, or Picture-in-Picture mode.");
-        tip.setTextColor(Color.parseColor("#888888"));
-        tip.setTextSize(12);
-        tip.setPadding(0, dp(14), 0, 0);
-        root.addView(tip);
 
         setContentView(scroll);
     }
@@ -364,7 +448,7 @@ public class MainActivity extends Activity {
         TextView tv = new TextView(this);
         tv.setText(label);
         tv.setTextColor(Color.WHITE);
-        tv.setTextSize(14);
+        tv.setTextSize(13);
         row.addView(tv, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
         Switch sw = new Switch(this);
@@ -475,7 +559,10 @@ public class MainActivity extends Activity {
         tvSourceValue.setText(srcText);
 
         tvOffsetValue.setText(String.format(Locale.US, "Spotify Sync Offset: %+.1fs", OverlayState.spotifyOffsetMs / 1000.0));
+        swMonospace.setChecked(OverlayState.useMonospaceFont);
+        swThreeLines.setChecked(OverlayState.showThreeLines);
         swDarkPill.setChecked(OverlayState.showDarkPill);
         swClickThrough.setChecked(OverlayState.clickThrough);
+        swAmoledAuto.setChecked(OverlayState.amoledAutoOnScreenOff);
     }
 }

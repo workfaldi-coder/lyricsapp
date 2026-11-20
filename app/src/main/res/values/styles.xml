@@ -5,4 +5,11 @@
         <item name="android:statusBarColor">#121212</item>
         <item name="android:navigationBarColor">#121212</item>
     </style>
+
+    <style name="AmoledTheme" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#000000</item>
+        <item name="android:statusBarColor">#000000</item>
+        <item name="android:navigationBarColor">#000000</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
 </resources>

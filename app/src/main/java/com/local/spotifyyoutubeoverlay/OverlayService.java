@@ -5,31 +5,23 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.ComponentName;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ServiceInfo;
 import android.graphics.PixelFormat;
-import android.media.MediaMetadata;
-import android.media.session.MediaController;
-import android.media.session.MediaSessionManager;
-import android.media.session.PlaybackState;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.os.SystemClock;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.WindowManager;
-
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 public class OverlayService extends Service {
     public static final String ACTION_START = "com.local.spotifyyoutubeoverlay.START";
@@ -44,19 +36,61 @@ public class OverlayService extends Service {
     private WindowManager windowManager;
     private WindowManager.LayoutParams layoutParams;
     private OutlinedLyricsView lyricsView;
-    private MediaSessionManager mediaSessionManager;
-    private ComponentName listenerComponent;
+    private PowerManager powerManager;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
-    private final ExecutorService bgExecutor = Executors.newSingleThreadExecutor();
     private boolean hasReceivedAnyMedia = false;
+    private boolean isScreenOn = true;
+
+    private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if (intent == null || intent.getAction() == null) return;
+            String action = intent.getAction();
+
+            if (Intent.ACTION_SCREEN_OFF.equals(action)) {
+                isScreenOn = false;
+                uiHandler.removeCallbacks(tickRunnable);
+
+                if (OverlayState.amoledActive) {
+                    OverlayState.amoledLastDismissedMs = System.currentTimeMillis();
+                    return;
+                }
+
+                long sinceDismiss = System.currentTimeMillis() - OverlayState.amoledLastDismissedMs;
+                if (OverlayState.amoledAutoOnScreenOff && sinceDismiss > 4000L) {
+                    MediaSyncHelper.Snapshot snap = MediaSyncHelper.pollMusic(OverlayService.this);
+                    if (snap.musicPlaying) {
+                        launchAmoledScreensaver();
+                    }
+                }
+            } else if (Intent.ACTION_SCREEN_ON.equals(action)) {
+                isScreenOn = true;
+                if (OverlayState.overlayRunning) {
+                    uiHandler.removeCallbacks(tickRunnable);
+                    uiHandler.post(tickRunnable);
+                }
+            }
+        }
+    };
 
     private final Runnable tickRunnable = new Runnable() {
         @Override
         public void run() {
-            if (!OverlayState.overlayRunning) return;
-            updateOverlayText();
-            uiHandler.postDelayed(this, 100);
+            if (!OverlayState.overlayRunning || !isScreenOn) return;
+
+            if (OverlayState.amoledActive) {
+                if (lyricsView != null && lyricsView.getVisibility() != View.GONE) {
+                    lyricsView.setVisibility(View.GONE);
+                }
+                uiHandler.postDelayed(this, 500);
+                return;
+            } else if (lyricsView != null && lyricsView.getVisibility() != View.VISIBLE) {
+                lyricsView.setVisibility(View.VISIBLE);
+            }
+
+            boolean active = updateOverlayText();
+            uiHandler.postDelayed(this, active ? 100 : 1000);
         }
     };
 
@@ -74,13 +108,26 @@ public class OverlayService extends Service {
         }
 
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
-        mediaSessionManager = (MediaSessionManager) getSystemService(Context.MEDIA_SESSION_SERVICE);
-        listenerComponent = new ComponentName(this, MediaMonitorService.class);
+        powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (powerManager != null) {
+            isScreenOn = powerManager.isInteractive();
+        }
+
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(Intent.ACTION_SCREEN_OFF);
+        filter.addAction(Intent.ACTION_SCREEN_ON);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(screenReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(screenReceiver, filter);
+        }
 
         if (Settings.canDrawOverlays(this)) {
             createOverlayWindow();
             OverlayState.overlayRunning = true;
-            uiHandler.post(tickRunnable);
+            if (isScreenOn) {
+                uiHandler.post(tickRunnable);
+            }
         } else {
             stopSelf();
         }
@@ -108,11 +155,34 @@ public class OverlayService extends Service {
         return START_STICKY;
     }
 
+    @SuppressWarnings("deprecation")
+    private void launchAmoledScreensaver() {
+        try {
+            if (powerManager != null) {
+                PowerManager.WakeLock wl = powerManager.newWakeLock(
+                        PowerManager.SCREEN_DIM_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                        "SpotifyYouTubeOverlay:AmoledWake"
+                );
+                wl.acquire(2500L);
+            }
+        } catch (Exception ignored) {}
+
+        Intent i = new Intent(this, AmoledLyricsActivity.class);
+        i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        startActivity(i);
+    }
+
+    private int desiredOverlayHeightPx() {
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int heightDp = OverlayState.showThreeLines ? 210 : 135;
+        return (int) (heightDp * dm.density);
+    }
+
     private void createOverlayWindow() {
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int heightPx = (int) (135 * dm.density);
+        int heightPx = desiredOverlayHeightPx();
         int defaultY = Math.max(60, dm.heightPixels - heightPx - (int) (96 * dm.density));
-        int savedY = OverlayState.getSavedY(this, defaultY);
+        int savedY = Math.min(OverlayState.getSavedY(this, defaultY), Math.max(0, dm.heightPixels - heightPx));
 
         int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
@@ -164,7 +234,17 @@ public class OverlayService extends Service {
 
     private void applyWindowFlagsAndStyle() {
         if (lyricsView == null || layoutParams == null || windowManager == null) return;
-        lyricsView.applyStyle(OverlayState.textColor, OverlayState.textSizeSp, OverlayState.showDarkPill);
+        lyricsView.applyStyle(
+                OverlayState.textColor,
+                OverlayState.textSizeSp,
+                OverlayState.useMonospaceFont,
+                OverlayState.showDarkPill
+        );
+
+        DisplayMetrics dm = getResources().getDisplayMetrics();
+        int desiredH = desiredOverlayHeightPx();
+        layoutParams.height = desiredH;
+        layoutParams.y = Math.max(0, Math.min(layoutParams.y, Math.max(0, dm.heightPixels - desiredH)));
 
         int flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
                 | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN;
@@ -175,12 +255,16 @@ public class OverlayService extends Service {
         try {
             windowManager.updateViewLayout(lyricsView, layoutParams);
         } catch (Exception ignored) {}
+
+        // Refresh displayed lyrics layout immediately when switching 1-line <-> 3-line
+        updateOverlayText();
     }
 
     private void resetPosition() {
         if (lyricsView == null || layoutParams == null || windowManager == null) return;
         DisplayMetrics dm = getResources().getDisplayMetrics();
-        int heightPx = (int) (135 * dm.density);
+        int heightPx = desiredOverlayHeightPx();
+        layoutParams.height = heightPx;
         layoutParams.y = Math.max(60, dm.heightPixels - heightPx - (int) (96 * dm.density));
         OverlayState.saveY(this, layoutParams.y);
         try {
@@ -188,36 +272,10 @@ public class OverlayService extends Service {
         } catch (Exception ignored) {}
     }
 
-    private void updateOverlayText() {
-        if (lyricsView == null) return;
+    private boolean updateOverlayText() {
+        if (lyricsView == null) return false;
 
-        MediaController musicController = null;
-        boolean youtubePlaying = false;
-
-        try {
-            if (mediaSessionManager != null) {
-                List<MediaController> controllers = mediaSessionManager.getActiveSessions(listenerComponent);
-                if (controllers != null) {
-                    for (MediaController mc : controllers) {
-                        PlaybackState ps = mc.getPlaybackState();
-                        if (ps == null || ps.getState() != PlaybackState.STATE_PLAYING) {
-                            continue;
-                        }
-                        String pkg = mc.getPackageName();
-                        if (pkg == null) continue;
-                        if (pkg.equals("com.google.android.youtube") || pkg.equals("app.revanced.android.youtube")) {
-                            youtubePlaying = true;
-                        } else if (pkg.equals("com.spotify.music")
-                                || pkg.equals("com.spotify.lite")
-                                || pkg.equals("com.google.android.apps.youtube.music")) {
-                            musicController = mc;
-                        }
-                    }
-                }
-            }
-        } catch (SecurityException ignored) {
-            // Notification listener permission not granted yet
-        }
+        MediaSyncHelper.Snapshot snap = MediaSyncHelper.pollMusic(this);
 
         String ytText;
         long ytAgeMs;
@@ -226,8 +284,8 @@ public class OverlayService extends Service {
             ytAgeMs = System.currentTimeMillis() - OverlayState.ytCaptionUpdatedAtMs;
         }
 
-        boolean ytActive = (youtubePlaying && ytAgeMs < 15000L) || (!ytText.isEmpty() && ytAgeMs < 5000L);
-        boolean musicActive = (musicController != null);
+        boolean ytActive = (snap.youtubePlaying && ytAgeMs < 15000L) || (!ytText.isEmpty() && ytAgeMs < 5000L);
+        boolean musicActive = snap.musicPlaying;
 
         int mode = OverlayState.sourceMode;
         boolean useYt = false;
@@ -248,79 +306,23 @@ public class OverlayService extends Service {
         if (useYt) {
             hasReceivedAnyMedia = true;
             lyricsView.setDisplayText(ytText);
-            return;
+            return true;
         }
 
         if (useMusic) {
             hasReceivedAnyMedia = true;
-            handleMusicController(musicController);
-            return;
+            if (OverlayState.showThreeLines) {
+                lyricsView.setLyricsLines(snap.prevLine, snap.currentLine, snap.nextLine, true);
+            } else {
+                lyricsView.setDisplayText(snap.currentLine);
+            }
+            return true;
         }
 
         if (hasReceivedAnyMedia) {
             lyricsView.setDisplayText("");
         }
-    }
-
-    private void handleMusicController(MediaController mc) {
-        MediaMetadata meta = mc.getMetadata();
-        PlaybackState state = mc.getPlaybackState();
-        if (meta == null || state == null) return;
-
-        String track = meta.getString(MediaMetadata.METADATA_KEY_TITLE);
-        String artist = meta.getString(MediaMetadata.METADATA_KEY_ARTIST);
-        if (track == null || track.trim().isEmpty()) return;
-        if (artist == null) artist = "";
-
-        final String cleanTrack = track.trim();
-        final String cleanArtist = artist.trim();
-        final String trackKey = cleanTrack + "|||" + cleanArtist;
-
-        boolean needFetch = false;
-        List<OverlayState.LyricLine> linesCopy;
-
-        synchronized (OverlayState.LOCK) {
-            if (!trackKey.equals(OverlayState.currentTrackKey)) {
-                OverlayState.currentTrackKey = trackKey;
-                OverlayState.currentLyrics = new ArrayList<>();
-                OverlayState.currentLyrics.add(
-                        new OverlayState.LyricLine(0, "\u266A " + cleanTrack + (cleanArtist.isEmpty() ? "" : " \u2014 " + cleanArtist) + " \u266A")
-                );
-                needFetch = true;
-            }
-            linesCopy = new ArrayList<>(OverlayState.currentLyrics);
-        }
-
-        if (needFetch) {
-            bgExecutor.execute(new Runnable() {
-                @Override
-                public void run() {
-                    List<OverlayState.LyricLine> fetched = LyricsFetcher.fetchSyncedLyrics(cleanTrack, cleanArtist);
-                    synchronized (OverlayState.LOCK) {
-                        if (trackKey.equals(OverlayState.currentTrackKey)) {
-                            OverlayState.currentLyrics = fetched;
-                        }
-                    }
-                }
-            });
-        }
-
-        long basePos = state.getPosition();
-        long elapsedSinceUpdate = Math.max(0L, SystemClock.elapsedRealtime() - state.getLastPositionUpdateTime());
-        float speed = state.getPlaybackSpeed();
-        if (speed <= 0f) speed = 1f;
-        long currentMs = Math.max(0L, basePos + (long) (elapsedSinceUpdate * speed) + OverlayState.spotifyOffsetMs);
-
-        String displayLine = "";
-        for (int i = 0; i < linesCopy.size(); i++) {
-            OverlayState.LyricLine line = linesCopy.get(i);
-            if (currentMs >= line.timeMs) {
-                displayLine = line.text;
-            } else {
-                break;
-            }
-        }
-        lyricsView.setDisplayText(displayLine);
+        return false;
     }
 
     private void createNotificationChannel() {
@@ -342,6 +344,12 @@ public class OverlayService extends Service {
                 this, 0, openIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
+        Intent amoledIntent = new Intent(this, AmoledLyricsActivity.class);
+        amoledIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent amoledPi = PendingIntent.getActivity(
+                this, 3, amoledIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
         Intent toggleCtIntent = new Intent(this, OverlayService.class).setAction(ACTION_TOGGLE_CLICKTHROUGH);
         PendingIntent toggleCtPi = PendingIntent.getService(
                 this, 1, toggleCtIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
@@ -352,16 +360,17 @@ public class OverlayService extends Service {
                 this, 2, stopIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        String ctLabel = OverlayState.clickThrough ? "Unlock Drag" : "Click-Through";
+        String ctLabel = OverlayState.clickThrough ? "Unlock" : "Pass-Thru";
 
         return new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_music_note)
                 .setContentTitle("Lyrics & Subtitle Overlay Active")
-                .setContentText(OverlayState.clickThrough
-                        ? "Click-through ON (tap Unlock Drag to move)"
-                        : "Drag the lyrics on screen or tap to customize")
+                .setContentText(OverlayState.amoledAutoOnScreenOff
+                        ? "AMOLED auto-screensaver ON  |  Tap for settings"
+                        : "Tap AMOLED for blank-screen lyrics or tap to customize")
                 .setContentIntent(openPi)
                 .setOngoing(true)
+                .addAction(new Notification.Action.Builder(null, "AMOLED", amoledPi).build())
                 .addAction(new Notification.Action.Builder(null, ctLabel, toggleCtPi).build())
                 .addAction(new Notification.Action.Builder(null, "Stop", stopPi).build())
                 .build();
@@ -378,7 +387,9 @@ public class OverlayService extends Service {
     public void onDestroy() {
         OverlayState.overlayRunning = false;
         uiHandler.removeCallbacks(tickRunnable);
-        bgExecutor.shutdownNow();
+        try {
+            unregisterReceiver(screenReceiver);
+        } catch (Exception ignored) {}
         if (lyricsView != null && windowManager != null) {
             try {
                 windowManager.removeView(lyricsView);
