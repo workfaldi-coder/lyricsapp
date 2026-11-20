@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Spotify &amp; YouTube Overlay</string>
+    <string name="notif_listener_label">Lyrics Overlay Media Reader</string>
+    <string name="accessibility_label">YouTube Live Subtitle Reader</string>
+    <string name="accessibility_description">Reads active YouTube CC subtitle text so Spotify &amp; YouTube Overlay can display it transparently on top of your screen.</string>
+</resources>
