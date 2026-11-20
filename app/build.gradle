@@ -1,31 +1,31 @@
 plugins {
-    id("com.android.application")
+    id 'com.android.application'
 }
 
 android {
-    namespace = "com.local.spotifyyoutubeoverlay"
-    compileSdk = 34
+    namespace 'com.local.spotifyyoutubeoverlay'
+    compileSdk 34
 
     defaultConfig {
-        applicationId = "com.local.spotifyyoutubeoverlay"
-        minSdk = 26
-        targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        applicationId 'com.local.spotifyyoutubeoverlay'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            minifyEnabled false
         }
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
 }
 
 dependencies {
-    // Pure Android SDK - zero third-party dependencies for fast, reliable builds
+    // Pure Android SDK - zero third-party dependencies
 }
